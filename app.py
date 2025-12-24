@@ -1,74 +1,81 @@
-import streamlit as st
 import collections
 
-# Postavke stranice
-st.set_page_config(page_title="R8 Quantum Predictor", layout="centered")
+class AlfastreetPredictor:
+    def __init__(self):
+        # Fizički raspored brojeva na europskom kolu (u smjeru kazaljke na satu)
+        self.wheel = [
+            0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 
+            5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26
+        ]
+        self.history = []
+        self.deltas = []
+        self.mode_memory = 10  # Koliko zadnjih bacanja analizira za trend
 
-# Fizički raspored Alfastreet R8 kola
-WHEEL = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 
-         5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
+    def get_index(self, number):
+        """Vraća indeks broja na fizičkom kolu (0-36)."""
+        return self.wheel.index(number)
 
-# Inicijalizacija baze podataka u sesiji
-if 'numbers' not in st.session_state:
-    st.session_state.numbers = [14,1,25,5,7,15,19,28,33,21,3,24,34,25,18,27,34,11,4,28,34,26,24,24,25,8,4,34,8,16,11,34,4,26,29,3,32,11,25,23,28,6,20,12,6,29,32,33,25,21,22]
+    def calculate_delta(self, n1, n2):
+        """Izračunava koliko je polja kuglica prešla (pomak)."""
+        idx1 = self.get_index(n1)
+        idx2 = self.get_index(n2)
+        return (idx2 - idx1) % 37
 
-def get_neighbors(number, count=2):
-    try:
-        idx = WHEEL.index(number)
-        return [WHEEL[(idx + i) % 37] for i in range(-count, count + 1)]
-    except ValueError:
-        return []
-
-def calculate_top_16(niz):
-    if not niz: return []
-    
-    # --- AUTOMATSKO PODEŠAVANJE PARAMETARA (Self-Tuning) ---
-    freq = collections.Counter(niz)
-    last_num = niz[-1]
-    
-    # Ako se zadnja 3 broja ponavljaju u istom sektoru, pojačaj 'Sector Weight'
-    scores = {n: 0 for n in range(37)}
-    
-    for num in range(37):
-        # 1. Kvantna masa (Frekvencija pojavljivanja)
-        scores[num] += freq.get(num, 0) * 2.8
+    def update(self, new_number):
+        """Unos novog broja i ažuriranje mehaničke memorije."""
+        if self.history:
+            delta = self.calculate_delta(self.history[-1], new_number)
+            self.deltas.append(delta)
+        self.history.append(new_number)
         
-        # 2. Dinamički sektor (Susjedi zadnjeg broja)
-        if num in get_neighbors(last_num, 4):
-            scores[num] += 6.5
+        if len(self.deltas) > self.mode_memory:
+            self.deltas.pop(0)
+
+    def get_top_16(self):
+        """Glavni algoritam za izračun sljedećih 16 favorita."""
+        if len(self.history) < 2:
+            return "Nedovoljno podataka. Unesite barem 2 broja."
+
+        # 1. Pronalaženje najčešćeg pomaka (Modalna Delta)
+        # Gledamo koji se razmak najviše ponavlja (mehanički potpis)
+        if not self.deltas:
+            return []
             
-        # 3. Sidrišta (Vruće točke sustava - npr. 25 i 34)
-        vruci_brojevi = [n for n, c in freq.most_common(3)]
-        for vruci in vruci_brojevi:
-            if num in get_neighbors(vruci, 2):
-                scores[num] += 3.5
+        most_common_delta = collections.Counter(self.deltas).most_common(1)[0][0]
+        
+        # 2. Analiza trenda (da li se Delta povećava ili smanjuje - usporavanje rotora)
+        trend = 0
+        if len(self.deltas) >= 3:
+            avg_recent = sum(self.deltas[-3:]) / 3
+            trend = round(avg_recent - most_common_delta)
 
-    sorted_res = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    return [x[0] for x in sorted_res[:16]]
+        # 3. Predviđanje baze (Zadnji indeks + najvjerojatniji pomak + trend)
+        last_index = self.get_index(self.history[-1])
+        predicted_center = (last_index + most_common_delta + trend) % 37
 
-# --- UI DIZAJN ---
-st.title("🎰 R8 Quantum Predictor")
-st.subheader("Samo-podešavajući statistički model")
+        # 4. Generiranje Top 16 (8 lijevo i 8 desno od predviđenog centra)
+        # Ovime stvaramo "neprobojni" štit oko najvjerojatnije točke pada
+        top_16_indices = []
+        for i in range(-8, 8):
+            top_16_indices.append((predicted_center + i) % 37)
 
-# Unos novog broja
-new_num = st.number_input("Unesi zadnji broj koji je pao:", min_value=0, max_value=36, step=1)
-if st.button("DODAJ BROJ I ANALIZIRAJ"):
-    st.session_state.numbers.append(new_num)
-    st.rerun()
+        # Pretvaranje indeksa natrag u brojeve ruleta
+        top_16_numbers = [self.wheel[idx] for idx in top_16_indices]
+        
+        return top_16_numbers
 
-# Prikaz Top 16 ishoda
-top_16 = calculate_top_16(st.session_state.numbers)
+# --- PRIMJER KORIŠTENJA ---
+predictor = AlfastreetPredictor()
 
-st.write("---")
-st.header("🎯 Sljedeći ishod (Top 16):")
-cols = st.columns(4)
-for i, num in enumerate(top_16):
-    cols[i % 4].button(f"**{num}**", key=f"btn_{i}", use_container_width=True)
+def igraj(broj):
+    predictor.update(broj)
+    favoriti = predictor.get_top_16()
+    print(f"Nakon broja {broj}, tvojih Top 16 za idući krug su:")
+    print(favoriti)
+    print("-" * 30)
 
-st.write("---")
-with st.expander("Pogledaj povijest i statistiku"):
-    st.write(f"Ukupno analizirano: {len(st.session_state.numbers)} brojeva")
-    st.write(f"Zadnjih 10: {st.session_state.numbers[-10:]}")
-    if st.button("Resetiraj sve"):
-        st.session_state.numbers = []
-        st.rerun()
+# Simulacija unosa brojeva (zamijeni sa stvarnim brojevima s aparata)
+igraj(32)
+igraj(15)
+igraj(21)
+igraj(30)
